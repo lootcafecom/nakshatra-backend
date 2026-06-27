@@ -1,9 +1,10 @@
 FROM python:3.12-slim
 
-# build tools needed to compile pyswisseph's C extension:
-# gcc is the compiler, libc6-dev provides standard headers like math.h
+# build tools needed to compile pyswisseph's C/C++ extension:
+# gcc + libc6-dev compile the C files, g++ compiles one C++ file (swhdbxx.cpp)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    g++ \
     libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
