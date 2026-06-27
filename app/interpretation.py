@@ -14,6 +14,9 @@ from app.numerology import NumerologyProfile
 from app.tarot import DrawnCard
 from app.vastu import VastuProfile
 from app.matching import MatchResult
+from app.panchang import PanchangResult
+from app.muhurta import MuhurtaScore, ACTIVITY_RULES
+from app.remedy import RemedyProfile
 
 LANGUAGE_NAMES = {
     "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "kn": "Kannada",
@@ -193,5 +196,152 @@ specific to what this particular koota breakdown shows
 
 Around 280 words. Be honest about weak areas rather than glossing over them, \
 while keeping the tone warm and constructive."""
+
+    return system, user
+
+
+def build_activity_mapping_prompt(free_text: str) -> tuple[str, str]:
+    """Maps free-text activity description to the closest known rule
+    set key. This is the one place AI output determines which
+    *category* of rules to apply — it never sets the score itself,
+    only picks which classical rule set is the best match."""
+    activity_options = "\n".join(
+        f"- {key}: {rules.label}" for key, rules in ACTIVITY_RULES.items()
+    )
+
+    system = f"""You map a person's free-text description of a planned activity \
+to the closest matching category from this fixed list:
+
+{activity_options}
+
+Respond with ONLY the category key (e.g. "marriage"), nothing else — no \
+punctuation, no explanation, no preamble. If nothing matches reasonably \
+well, respond with exactly: none"""
+
+    user = f"Activity description: {free_text}"
+    return system, user
+
+
+def build_muhurta_single_prompt(activity_label: str, score: MuhurtaScore, language_code: str) -> tuple[str, str]:
+    system = BASE_SYSTEM_PROMPT.format(language_name=_lang_name(language_code))
+
+    user = f"""Muhurta check for {activity_label} on {score.date} ({score.weekday}).
+
+Calculated Panchang for this date:
+- Tithi: {score.panchang.tithi_name} ({'favorable' if score.tithi_favorable else 'not favorable'} for {activity_label})
+- Nakshatra: {score.panchang.nakshatra} ({'favorable' if score.nakshatra_favorable else 'not favorable'})
+- Weekday: {score.weekday} ({'favorable' if score.weekday_favorable else 'not favorable'})
+- Karana: {score.panchang.karana_name} ({'acceptable' if score.karana_favorable else 'classically avoided'})
+- Yoga: {score.panchang.yoga_name}
+
+Overall score: {score.score} out of {score.max_score} criteria matched.
+Verdict: {score.verdict}
+
+Using only this data, explain:
+1. Whether this date is genuinely well-suited for {activity_label}, and why
+2. Which specific factor helps the most, and which (if any) is the weak point
+3. One practical note — e.g. a time-of-day consideration like avoiding Rahu Kaal \
+({score.panchang.rahu_kaal_start.strftime('%H:%M')}-{score.panchang.rahu_kaal_end.strftime('%H:%M')})
+
+Around 180 words. Be direct about whether this date is actually good or not — \
+don't soften a genuinely weak verdict."""
+
+    return system, user
+
+
+def build_muhurta_search_prompt(activity_label: str, scores: list[MuhurtaScore], language_code: str) -> tuple[str, str]:
+    system = BASE_SYSTEM_PROMPT.format(language_name=_lang_name(language_code))
+
+    date_lines = "\n".join(
+        f"- {s.date} ({s.weekday}): score {s.score}/{s.max_score}, "
+        f"{s.panchang.tithi_name}, {s.panchang.nakshatra} — {s.verdict}"
+        for s in scores[:5]
+    )
+
+    user = f"""Searched for the best dates for {activity_label}, found these top candidates:
+
+{date_lines}
+
+Using only this data, write a short summary covering:
+1. Which date stands out as the strongest choice, and why
+2. What the next best alternative offers if the top date doesn't work logistically
+3. One practical closing note about confirming the exact time-of-day window \
+once a date is chosen
+
+Around 180 words."""
+
+    return system, user
+
+
+def build_remedy_prompt(profile: RemedyProfile, language_code: str) -> tuple[str, str]:
+    system = BASE_SYSTEM_PROMPT.format(language_name=_lang_name(language_code))
+
+    if not profile.concerns:
+        concern_lines = "No planets were flagged as debilitated, in a dusthana house, or otherwise classically in need of remediation."
+    else:
+        concern_lines = "\n".join(
+            f"- {c.planet} ({c.reason}): "
+            f"gemstone {c.gemstone.gemstone_english} ({c.gemstone.gemstone_sanskrit}) in {c.gemstone.metal} "
+            f"on the {c.gemstone.finger}, worn starting on a {c.gemstone.weekday}; "
+            f"mantra '{c.mantra.beej_mantra}' ({c.mantra.recitation_count}x); "
+            f"charity: {c.charity.item} on {c.charity.weekday}"
+            for c in profile.concerns
+        )
+
+    strongest_line = (
+        f"Strongest placement: {profile.strongest_planet} is exalted in this chart."
+        if profile.strongest_planet else
+        "No planet is in its exaltation sign in this chart."
+    )
+
+    user = f"""Remedy profile for {profile.name}.
+
+{strongest_line}
+
+Calculated planets flagged for classical remedial attention:
+{concern_lines}
+
+Using only this data, write guidance covering:
+1. What these specific flagged planets suggest about where this person may \
+feel friction or need extra support
+2. For the single most significant flagged planet, explain the gemstone, \
+mantra, and charity remedy in practical terms — what to actually do, not just \
+what the stone is called
+3. A brief grounding note: remedies are a classical tool for support, not a \
+guarantee, and a gemstone in particular should ideally be confirmed by a \
+qualified astrologer before purchase since an unsuitable stone is classically \
+considered counterproductive
+
+Around 260 words."""
+
+    return system, user
+
+
+def build_panchang_prompt(name: str, panchang: PanchangResult, language_code: str) -> tuple[str, str]:
+    system = BASE_SYSTEM_PROMPT.format(language_name=_lang_name(language_code))
+
+    yoga_quality = (
+        "favorable" if panchang.yoga_is_favorable is True
+        else "unfavorable" if panchang.yoga_is_favorable is False
+        else "neutral"
+    )
+
+    user = f"""Daily Panchang for {name} — {panchang.date} ({panchang.weekday}, ruled by {panchang.weekday_lord}).
+
+Calculated Panchang elements:
+- Tithi: {panchang.paksha} Paksha, {panchang.tithi_name} (day {panchang.tithi_number})
+- Nakshatra: {panchang.nakshatra}, pada {panchang.nakshatra_pada}
+- Yoga: {panchang.yoga_name} ({yoga_quality})
+- Karana: {panchang.karana_name}
+- Rahu Kaal: {panchang.rahu_kaal_start.strftime('%H:%M')} to {panchang.rahu_kaal_end.strftime('%H:%M')} (local time)
+
+Using only this data, write a short daily guidance note covering:
+1. The overall character of the day given this Tithi and Nakshatra combination
+2. What the Yoga suggests is favored or best avoided today
+3. A reminder about the Rahu Kaal window for timing-sensitive decisions
+4. One practical, specific suggestion for how to use today well
+
+Around 180 words. Keep it grounded and specific to today's actual \
+combination, not a generic daily-horoscope tone."""
 
     return system, user
