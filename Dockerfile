@@ -1,7 +1,10 @@
 FROM python:3.12-slim
 
-# system dependency that pyswisseph needs at runtime
-RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lists/*
+# build tools needed to compile pyswisseph's C extension (it builds its
+# own internal libswe and sqlite3 from source, so it needs a compiler)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
