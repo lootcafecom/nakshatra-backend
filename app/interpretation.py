@@ -13,6 +13,7 @@ from app.vedic import BirthChart
 from app.numerology import NumerologyProfile
 from app.tarot import DrawnCard
 from app.vastu import VastuProfile
+from app.matching import MatchResult
 
 LANGUAGE_NAMES = {
     "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "kn": "Kannada",
@@ -148,5 +149,49 @@ Nairutya/Southwest, Vayavya/Northwest) is best used for in their home
 3. One practical correction or placement tip they can apply this week
 
 Around 220 words."""
+
+    return system, user
+
+
+def build_matching_prompt(match: MatchResult, language_code: str) -> tuple[str, str]:
+    system = BASE_SYSTEM_PROMPT.format(language_name=_lang_name(language_code))
+
+    koota_lines = "\n".join(
+        f"- {k.name} ({k.score}/{k.max_points}): {k.note}" for k in match.kootas
+    )
+
+    mangal_lines = (
+        f"{match.person_a_name}: Mars in house {match.mangal_dosha.person_a_mars_house}"
+        f"{' (Mangal Dosha present)' if match.mangal_dosha.person_a_dosha else ' (no Mangal Dosha)'}\n"
+        f"{match.person_b_name}: Mars in house {match.mangal_dosha.person_b_mars_house}"
+        f"{' (Mangal Dosha present)' if match.mangal_dosha.person_b_dosha else ' (no Mangal Dosha)'}"
+    )
+    if match.mangal_dosha.cancellation_reason:
+        mangal_lines += f"\nCancellation: {match.mangal_dosha.cancellation_reason}"
+
+    user = f"""Compatibility reading for {match.person_a_name} and {match.person_b_name}.
+
+Calculated Ashtakoot Guna Milan score: {match.total_score} out of {match.max_score}.
+Classical verdict band: {match.verdict}
+
+Koota-by-koota breakdown:
+{koota_lines}
+
+Nadi Dosha present: {match.nadi_dosha}
+Bhakoot Dosha present: {match.bhakoot_dosha}
+
+Mangal Dosha (Kuja Dosha) check:
+{mangal_lines}
+
+Using only this data, write a compatibility reading covering:
+1. What the overall score and verdict band mean for this couple
+2. Which 2-3 kootas are the strongest and what they suggest about the relationship
+3. Which kootas are weakest, and if any dosha (Nadi, Bhakoot, or Mangal) is present, \
+explain what it means plainly and whether it is cancelled
+4. One grounded, practical closing thought — not generic reassurance, but \
+specific to what this particular koota breakdown shows
+
+Around 280 words. Be honest about weak areas rather than glossing over them, \
+while keeping the tone warm and constructive."""
 
     return system, user

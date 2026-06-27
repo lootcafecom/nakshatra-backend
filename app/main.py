@@ -22,6 +22,7 @@ from app.vedic import compute_birth_chart
 from app.numerology import compute_numerology_profile
 from app.tarot import draw_three_card_spread
 from app.vastu import compute_vastu_profile
+from app.matching import compute_kundli_match
 from app import interpretation
 
 app = FastAPI(title="Nakshatra Calculation API", version="0.1.0")
@@ -75,6 +76,21 @@ class VastuInput(BaseModel):
     name: str
     place: str
     entrance_facing_degrees: float | None = None
+    language: str = "en"
+
+
+class PersonInput(BaseModel):
+    name: str
+    birth_date: str
+    birth_time: str
+    latitude: float
+    longitude: float
+    timezone: str
+
+
+class MatchingInput(BaseModel):
+    person_a: PersonInput
+    person_b: PersonInput
     language: str = "en"
 
 
@@ -193,6 +209,44 @@ async def vastu_reading(input: VastuInput):
     }
 
     system, user = interpretation.build_vastu_prompt(input.name, vastu_profile, input.language)
+    try:
+        text = await call_claude(system, user)
+        return ReadingResponse(calculated_data=calculated_data, interpretation=text)
+    except HTTPException as e:
+        return ReadingResponse(calculated_data=calculated_data, interpretation=None, interpretation_error=e.detail)
+
+
+@app.post("/readings/matching", response_model=ReadingResponse)
+async def matching_reading(input: MatchingInput):
+    a, b = input.person_a, input.person_b
+    match, chart_a, chart_b = compute_kundli_match(
+        a.name, a.birth_date, a.birth_time, a.latitude, a.longitude, a.timezone,
+        b.name, b.birth_date, b.birth_time, b.latitude, b.longitude, b.timezone,
+    )
+
+    calculated_data = {
+        "person_a_name": match.person_a_name,
+        "person_b_name": match.person_b_name,
+        "total_score": match.total_score,
+        "max_score": match.max_score,
+        "verdict": match.verdict,
+        "kootas": [
+            {"name": k.name, "max_points": k.max_points, "score": k.score, "note": k.note}
+            for k in match.kootas
+        ],
+        "nadi_dosha": match.nadi_dosha,
+        "bhakoot_dosha": match.bhakoot_dosha,
+        "mangal_dosha": {
+            "person_a_dosha": match.mangal_dosha.person_a_dosha,
+            "person_b_dosha": match.mangal_dosha.person_b_dosha,
+            "person_a_mars_house": match.mangal_dosha.person_a_mars_house,
+            "person_b_mars_house": match.mangal_dosha.person_b_mars_house,
+            "cancelled": match.mangal_dosha.cancelled,
+            "cancellation_reason": match.mangal_dosha.cancellation_reason,
+        },
+    }
+
+    system, user = interpretation.build_matching_prompt(match, input.language)
     try:
         text = await call_claude(system, user)
         return ReadingResponse(calculated_data=calculated_data, interpretation=text)

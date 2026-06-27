@@ -25,6 +25,14 @@ explains what's already been computed.
   host, so this module could not be live-tested here. The request shape
   matches each service's published API exactly and will work on any
   normal host (Render, Railway, your own machine).
+- **`app/matching.py`** — classical 36-point Ashtakoot Guna Milan
+  (Kundli matching): Varna, Vashya, Tara, Yoni, Graha Maitri, Gana,
+  Bhakoot, and Nadi kootas, plus Mangal Dosha detection. All 27
+  nakshatras are classified for Nadi/Gana/Yoni and verified to have the
+  correct 9/9/9 distribution for Nadi and Gana. Tara koota's
+  even/odd-remainder rule is verified symmetric and produces a real
+  0/1.5/3 distribution (an earlier implementation bug that collapsed
+  this to a single flat value was caught by the test suite and fixed).
 - **`app/interpretation.py`** — builds the system/user prompts sent to
   Claude. Every prompt only contains already-calculated data and
   explicit instructions never to recalculate it.
@@ -53,6 +61,7 @@ The frontend expects this running at `http://localhost:8000` by default
 | POST | `/readings/numerology` | same as above | latitude/longitude/timezone unused but accepted for a consistent shape |
 | POST | `/readings/tarot` | name, language | |
 | POST | `/readings/vastu` | name, place, entrance_facing_degrees, language | needs live internet (Nominatim + NOAA) |
+| POST | `/readings/matching` | person_a {name, birth_date, birth_time, latitude, longitude, timezone}, person_b {...}, language | Ashtakoot Guna Milan + Mangal/Nadi/Bhakoot dosha |
 
 Every response shape is:
 ```json
@@ -74,11 +83,13 @@ layer works independently of the AI layer.
 python3 -m pytest app/tests/ -v
 ```
 
-21 tests, all passing, covering: sign/nakshatra/pada boundary math,
+46 tests, all passing, covering: sign/nakshatra/pada boundary math,
 the Rahu/Ketu 180° relationship, dasha timeline continuity, house range
 validity, numerology hand-verified values, master number handling, tarot
-deck integrity and draw randomness, and Vastu zone boundary coverage
-across all 360 degrees.
+deck integrity and draw randomness, Vastu zone boundary coverage across
+all 360 degrees, and the full Ashtakoot matching engine (all 27
+nakshatras classified correctly, Tara koota symmetry, Bhakoot dosha
+boundaries, Mangal Dosha detection).
 
 ## What's NOT built yet
 
