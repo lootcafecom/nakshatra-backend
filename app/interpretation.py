@@ -59,12 +59,16 @@ def build_vedic_prompt(name: str, chart: BirthChart, language_code: str) -> tupl
         for p in chart.planets
     )
 
+    antardasha_line = ""
+    if chart.current_antardasha:
+        antardasha_line = f"\n- Current Antardasha (sub-period): {chart.current_dasha}/{chart.current_antardasha}"
+
     user = f"""Person: {name}
 
 Calculated birth chart data (Lahiri ayanamsha, sidereal):
 - Ascendant (Lagna): {chart.ascendant_sign} at {chart.ascendant_degree}°
 - Moon Nakshatra: {chart.moon_nakshatra}, pada {chart.moon_nakshatra_pada}
-- Current Vimshottari Dasha: {chart.current_dasha}
+- Current Vimshottari Mahadasha: {chart.current_dasha}{antardasha_line}
 
 Planetary positions:
 {planet_lines}
@@ -72,10 +76,10 @@ Planetary positions:
 Using only this data, write a reading covering:
 1. What the Ascendant and Moon Nakshatra together suggest about this person's nature
 2. The most significant planetary placement and what it means for them
-3. What the current {chart.current_dasha} Mahadasha period suggests for this phase of life
+3. What the current {chart.current_dasha} Mahadasha period suggests — and if the Antardasha is given, specifically what the {chart.current_antardasha} sub-period within it means for this phase of life
 4. One practical, grounded piece of guidance for the months ahead
 
-Around 250 words."""
+Around 280 words."""
 
     return system, user
 

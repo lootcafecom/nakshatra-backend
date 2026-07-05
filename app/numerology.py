@@ -130,6 +130,49 @@ class NumerologyProfile:
     personal_year: NumerologyNumber
 
 
+@dataclass
+class DayForecast:
+    day: int
+    personal_day: int
+    quality: str     # "excellent" | "good" | "challenging" | "neutral"
+    theme: str
+
+
+PERSONAL_DAY_THEMES = {
+    1: ("New beginnings, leadership, solo action", "excellent"),
+    2: ("Partnership, patience, cooperation", "good"),
+    3: ("Creativity, communication, social connections", "excellent"),
+    4: ("Work, discipline, practical tasks", "good"),
+    5: ("Change, travel, freedom, variety", "neutral"),
+    6: ("Home, responsibility, nurturing", "good"),
+    7: ("Reflection, study, spiritual insight", "neutral"),
+    8: ("Ambition, finance, power moves", "excellent"),
+    9: ("Completion, release, service to others", "neutral"),
+    11: ("Intuition, inspiration, spiritual awareness", "excellent"),
+    22: ("Large-scale achievement, master building", "excellent"),
+    33: ("Compassion, teaching, healing", "excellent"),
+}
+
+
+def compute_best_days(birth_date: date, year: int, month: int) -> list[DayForecast]:
+    """Personal Day Number = Personal Year + current month + current day,
+    all reduced. Best days are those where the Personal Day is 1, 3, or 8.
+    Challenging days are 4 and 7 (restraint/isolation energy)."""
+    import calendar
+    _, days_in_month = calendar.monthrange(year, month)
+
+    personal_year = compute_personal_year_number(birth_date, year)
+
+    forecasts: list[DayForecast] = []
+    for day in range(1, days_in_month + 1):
+        raw = personal_year.value + month + day
+        pd_val, _ = _digit_sum_reduce(raw, allow_master=True)
+        theme, quality = PERSONAL_DAY_THEMES.get(pd_val, ("General flow", "neutral"))
+        forecasts.append(DayForecast(day=day, personal_day=pd_val, quality=quality, theme=theme))
+
+    return forecasts
+
+
 def compute_numerology_profile(full_name: str, birth_date: date, target_year: int) -> NumerologyProfile:
     return NumerologyProfile(
         life_path=compute_life_path(birth_date),

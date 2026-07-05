@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.vedic import compute_birth_chart
-from app.numerology import compute_numerology_profile
+from app.numerology import compute_numerology_profile, compute_best_days
 from app.tarot import draw_three_card_spread
 from app.vastu import compute_vastu_profile
 from app.matching import compute_kundli_match
@@ -222,6 +222,30 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/numerology/best-days")
+def best_days_of_month(
+    birth_date: str,   # "YYYY-MM-DD"
+    year: int | None = None,
+    month: int | None = None,
+):
+    from datetime import date as date_cls
+    today = date_cls.today()
+    y, m, d = (int(x) for x in birth_date.split("-"))
+    bd = date_cls(y, m, d)
+    target_year = year or today.year
+    target_month = month or today.month
+    forecasts = compute_best_days(bd, target_year, target_month)
+    return {
+        "year": target_year,
+        "month": target_month,
+        "days": [
+            {"day": f.day, "personal_day": f.personal_day, "quality": f.quality, "theme": f.theme}
+            for f in forecasts
+        ],
+        "best_days": [f.day for f in forecasts if f.quality == "excellent"],
+    }
+
+
 @app.post("/readings/vedic", response_model=ReadingResponse)
 async def vedic_reading(
     input: BirthInput,
@@ -238,6 +262,7 @@ async def vedic_reading(
         "moon_nakshatra": chart.moon_nakshatra,
         "moon_nakshatra_pada": chart.moon_nakshatra_pada,
         "current_dasha": chart.current_dasha,
+        "current_antardasha": chart.current_antardasha,
         "planets": [
             {
                 "name": p.name, "sign": p.sign, "sign_degree": p.sign_degree,
@@ -249,6 +274,15 @@ async def vedic_reading(
         "dasha_timeline": [
             {"planet": d.planet, "start": d.start.isoformat(), "end": d.end.isoformat()}
             for d in chart.dasha_timeline[:5]
+        ],
+        "antardasha_timeline": [
+            {
+                "mahadasha": a.mahadasha_planet,
+                "antardasha": a.antardasha_planet,
+                "start": a.start.isoformat(),
+                "end": a.end.isoformat(),
+            }
+            for a in chart.antardasha_timeline[:18]
         ],
     }
 
@@ -589,3 +623,57 @@ async def remedy_reading(
     except HTTPException as e:
         _save_reading_if_signed_in(db, user, "remedy", calculated_data, None, input.language)
         return ReadingResponse(calculated_data=calculated_data, interpretation=None, interpretation_error=e.detail)
+
+
+class FollowUpInput(BaseModel):
+    reading_type: str
+    calculated_data: dict
+    question: str
+    person_name: str = "the person"
+    language: str = "en"
+
+
+@app.post("/readings/follow-up")
+async def follow_up(input: FollowUpInput):
+    """Answer a specific follow-up question about an already-completed reading.
+    The full calculated data is passed in so the AI is grounded in the real
+    numbers rather than speaking generically."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not set. Follow-up answers are unavailable.",
+        )
+
+    LANGUAGE_NAMES = {
+        "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "kn": "Kannada",
+        "ml": "Malayalam", "bn": "Bengali", "mr": "Marathi", "en": "English",
+        "gu": "Gujarati",
+    }
+    lang_name = LANGUAGE_NAMES.get(input.language, "English")
+
+    system = f"""You are an expert Vedic astrology and numerology guide.
+You have just given {input.person_name} a {input.reading_type} reading.
+Here is the exact calculated data from that reading:
+
+{json.dumps(input.calculated_data, indent=2)[:3000]}
+
+The person now has a follow-up question. Answer it directly and specifically
+using only the data above — never generically. Keep your answer to 150 words.
+Write entirely in {lang_name}. Preserve Sanskrit astrological terms as-is."""
+
+    user_prompt = input.question
+
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            system=system,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        answer = "".join(block.text for block in response.content if block.type == "text")
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not get an answer: {str(e)}")

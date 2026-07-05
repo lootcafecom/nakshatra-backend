@@ -81,6 +81,18 @@ class DashaPeriod:
 
 
 @dataclass
+class AntarDasha:
+    """Sub-period (Bhukti) within a Mahadasha. Calculated as the
+    proportional share of the Mahadasha duration for each planet in
+    the classical 9-planet cycle, starting from the Mahadasha planet
+    itself and cycling through the Dasha order."""
+    mahadasha_planet: str
+    antardasha_planet: str
+    start: datetime
+    end: datetime
+
+
+@dataclass
 class BirthChart:
     julian_day: float
     ascendant_sign: str
@@ -90,6 +102,41 @@ class BirthChart:
     moon_nakshatra_pada: int = 1
     dasha_timeline: list[DashaPeriod] = field(default_factory=list)
     current_dasha: str = ""
+    antardasha_timeline: list[AntarDasha] = field(default_factory=list)
+    current_antardasha: str = ""
+
+
+def compute_antardasha(mahadasha: DashaPeriod) -> list[AntarDasha]:
+    """
+    Antardasha (Bhukti) — sub-periods within a Mahadasha.
+    Formula: sub_period_days = (maha_planet_years × sub_planet_years / 120) × 365.25
+    This gives each sub-period as a fraction of the full 120-year cycle,
+    then scaled to the mahadasha's actual elapsed duration.
+    Cross-checked: Rahu (18yr) Mahadasha → Rahu/Rahu sub-period = 18×18/120 = 2.7 years ≈ 986 days.
+    """
+    start_idx = DASHA_ORDER.index(mahadasha.planet)
+    maha_years = DASHA_YEARS[mahadasha.planet]
+
+    antardashas: list[AntarDasha] = []
+    cursor = mahadasha.start
+
+    for i in range(9):
+        idx = (start_idx + i) % 9
+        sub_planet = DASHA_ORDER[idx]
+        sub_years = DASHA_YEARS[sub_planet]
+        # classical formula: maha_years × sub_years / 120 years
+        sub_duration_years = (maha_years * sub_years) / 120.0
+        from datetime import timedelta
+        end = cursor + timedelta(days=sub_duration_years * 365.25)
+        antardashas.append(AntarDasha(
+            mahadasha_planet=mahadasha.planet,
+            antardasha_planet=sub_planet,
+            start=cursor,
+            end=end,
+        ))
+        cursor = end
+
+    return antardashas
 
 
 def _sign_index(longitude: float) -> int:
@@ -255,4 +302,29 @@ def compute_birth_chart(
         moon_nakshatra_pada=moon.nakshatra_pada,
         dasha_timeline=dasha_timeline,
         current_dasha=current_dasha,
+        antardasha_timeline=_build_antardasha_timeline(dasha_timeline, birth_dt_utc),
+        current_antardasha=_find_current_antardasha(dasha_timeline),
     )
+
+
+def _build_antardasha_timeline(dasha_timeline: list[DashaPeriod], birth_dt_utc: datetime) -> list[AntarDasha]:
+    """Compute antardasha sub-periods for the current and next Mahadasha."""
+    now = datetime.now(ZoneInfo("UTC"))
+    result: list[AntarDasha] = []
+    for dasha in dasha_timeline:
+        # only compute for current and immediately next mahadasha to keep payload lean
+        if dasha.end >= now:
+            result.extend(compute_antardasha(dasha))
+            if dasha.start > now:
+                break  # we've included the next full mahadasha, stop there
+    return result
+
+
+def _find_current_antardasha(dasha_timeline: list[DashaPeriod]) -> str:
+    now = datetime.now(ZoneInfo("UTC"))
+    current_maha = next((d for d in dasha_timeline if d.start <= now <= d.end), None)
+    if not current_maha:
+        return ""
+    antars = compute_antardasha(current_maha)
+    current_antar = next((a for a in antars if a.start <= now <= a.end), None)
+    return current_antar.antardasha_planet if current_antar else ""
