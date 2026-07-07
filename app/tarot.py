@@ -88,3 +88,51 @@ def draw_three_card_spread(rng: random.Random | None = None) -> list[DrawnCard]:
         )
         for i, card in enumerate(drawn_raw)
     ]
+
+
+def draw_single_card(rng: random.Random | None = None) -> list[DrawnCard]:
+    """Single daily focus card."""
+    rng = rng or random.Random()
+    deck_copy = list(FULL_DECK)
+    rng.shuffle(deck_copy)
+    card = deck_copy[0]
+    return [DrawnCard(name=card["name"], keywords=card["keywords"],
+                      reversed=rng.random() < 0.5, position="Daily Focus")]
+
+
+def draw_five_card_spread(rng: random.Random | None = None) -> list[DrawnCard]:
+    """5-card situation spread: Situation, Action, Embrace, Release, Outcome."""
+    rng = rng or random.Random()
+    deck_copy = list(FULL_DECK)
+    rng.shuffle(deck_copy)
+    positions = ["Situation", "Action", "What to Embrace", "What to Release", "Outcome"]
+    return [
+        DrawnCard(name=deck_copy[i]["name"], keywords=deck_copy[i]["keywords"],
+                  reversed=rng.random() < 0.5, position=positions[i])
+        for i in range(5)
+    ]
+
+
+def draw_celtic_cross(rng: random.Random | None = None) -> list[DrawnCard]:
+    """10-card Celtic Cross spread — the most comprehensive traditional spread."""
+    rng = rng or random.Random()
+    deck_copy = list(FULL_DECK)
+    rng.shuffle(deck_copy)
+    positions = [
+        "Present (The Heart)", "Challenge (Crossing)", "Foundation (Root)",
+        "Recent Past", "Possible Future", "Near Future",
+        "Your Attitude", "Environment", "Hopes & Fears", "Final Outcome",
+    ]
+    return [
+        DrawnCard(name=deck_copy[i]["name"], keywords=deck_copy[i]["keywords"],
+                  reversed=rng.random() < 0.5, position=positions[i])
+        for i in range(10)
+    ]
+
+
+SPREAD_FUNCTIONS = {
+    "single": draw_single_card,
+    "three": draw_three_card_spread,
+    "five": draw_five_card_spread,
+    "celtic": draw_celtic_cross,
+}

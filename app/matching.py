@@ -266,6 +266,8 @@ class MatchResult:
     bhakoot_dosha: bool
     mangal_dosha: MangalDoshaResult
     verdict: str
+    nadi_cancellation_reason: str | None = None
+    bhakoot_cancellation_reason: str | None = None
 
 
 MANGAL_DOSHA_HOUSES = {1, 2, 4, 7, 8, 12}
@@ -342,13 +344,46 @@ def compute_kundli_match(
     nadi_a, nadi_b = NADI[nak_a], NADI[nak_b]
     nadi_dosha = nadi_a == nadi_b
     nadi_pts = 0 if nadi_dosha else 8
-    kootas.append(KootaResult("Nadi", 8, nadi_pts, f"{nadi_a} vs {nadi_b}" + (" (dosha)" if nadi_dosha else "")))
+
+    # Classical Nadi Dosha cancellation rules:
+    # 1. Same nakshatra but different pada — Nadi Dosha is reduced
+    # 2. Both have same Moon sign (Rashi) — Nadi Dosha is cancelled
+    # 3. Both have same Moon nakshatra — traditionally also cancelled
+    nadi_cancelled = False
+    nadi_cancellation_reason: str | None = None
+    if nadi_dosha:
+        if sign_a == sign_b:
+            nadi_cancelled = True
+            nadi_cancellation_reason = (
+                f"Nadi Dosha is cancelled: both partners share the same Moon sign ({sign_a}). "
+                "Classical texts (Muhurta Chintamani) recognize this as a complete cancellation."
+            )
+            nadi_pts = 8  # restore full points on cancellation
+        elif nak_a == nak_b:
+            nadi_cancelled = True
+            nadi_cancellation_reason = (
+                f"Nadi Dosha is cancelled: both partners share the same Moon nakshatra ({nak_a}). "
+                "Same-nakshatra matches with different padas are classically exempt from Nadi Dosha."
+            )
+            nadi_pts = 8
+
+    kootas.append(KootaResult("Nadi", 8, nadi_pts, f"{nadi_a} vs {nadi_b}" + (" (dosha — cancelled)" if nadi_dosha and nadi_cancelled else " (dosha)" if nadi_dosha else "")))
+
+    # Bhakoot Dosha cancellation: if Graha Maitri (lord friendship) is full score,
+    # some classical sources allow Bhakoot Dosha to be treated as reduced severity
+    bhakoot_cancelled = bhakoot_dosha and gm >= 4
+    if bhakoot_cancelled:
+        bhakoot_pts = 3.5  # partial credit
+        kootas[-4] = KootaResult("Bhakoot", 7, bhakoot_pts, f"{sign_a} vs {sign_b} (dosha — partially cancelled by strong Graha Maitri)")
 
     total = sum(k.score for k in kootas)
     mangal = check_mangal_dosha(chart_a, chart_b)
 
-    if nadi_dosha:
+    # Nadi Dosha cancellation overrides the standard warning
+    if nadi_dosha and not nadi_cancelled:
         verdict = "Caution — Nadi Dosha present, the most significant classical concern regardless of total score."
+    elif nadi_dosha and nadi_cancelled:
+        verdict = f"Nadi Dosha detected but cancelled. {nadi_cancellation_reason}"
     elif total >= 30:
         verdict = "Excellent compatibility."
     elif total >= 24:
@@ -364,9 +399,11 @@ def compute_kundli_match(
         total_score=total,
         max_score=36,
         kootas=kootas,
-        nadi_dosha=nadi_dosha,
-        bhakoot_dosha=bhakoot_dosha,
+        nadi_dosha=nadi_dosha and not nadi_cancelled,
+        bhakoot_dosha=bhakoot_dosha and not bhakoot_cancelled,
         mangal_dosha=mangal,
         verdict=verdict,
+        nadi_cancellation_reason=nadi_cancellation_reason,
+        bhakoot_cancellation_reason="Partially cancelled by strong Graha Maitri (lord friendship score ≥ 4)." if bhakoot_cancelled else None,
     )
     return result, chart_a, chart_b

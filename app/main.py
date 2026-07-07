@@ -18,9 +18,9 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.vedic import compute_birth_chart
+from app.vedic import compute_birth_chart, compute_navamsa_chart
 from app.numerology import compute_numerology_profile, compute_best_days
-from app.tarot import draw_three_card_spread
+from app.tarot import draw_three_card_spread, SPREAD_FUNCTIONS
 from app.vastu import compute_vastu_profile
 from app.matching import compute_kundli_match
 from app.panchang import compute_panchang
@@ -268,6 +268,8 @@ async def vedic_reading(
                 "name": p.name, "sign": p.sign, "sign_degree": p.sign_degree,
                 "house": p.house, "nakshatra": p.nakshatra,
                 "nakshatra_pada": p.nakshatra_pada, "retrograde": p.retrograde,
+                "dignity": p.dignity, "strength": p.strength,
+                "strength_label": p.strength_label,
             }
             for p in chart.planets
         ],
@@ -284,6 +286,7 @@ async def vedic_reading(
             }
             for a in chart.antardasha_timeline[:18]
         ],
+        "navamsa_chart": compute_navamsa_chart(chart),
     }
 
     system, user_prompt = interpretation.build_vedic_prompt(input.name, chart, input.language)
@@ -328,6 +331,7 @@ async def numerology_reading(
 class TarotInput(BaseModel):
     name: str
     language: str = "en"
+    spread_type: str = "three"  # "single" | "three" | "five" | "celtic"
 
 
 @app.post("/readings/tarot", response_model=ReadingResponse)
@@ -336,9 +340,11 @@ async def tarot_reading(
     user: User | None = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    cards = draw_three_card_spread()
+    draw_fn = SPREAD_FUNCTIONS.get(input.spread_type, draw_three_card_spread)
+    cards = draw_fn()
 
     calculated_data = {
+        "spread_type": input.spread_type,
         "cards": [
             {"position": c.position, "name": c.name, "reversed": c.reversed, "keywords": c.keywords}
             for c in cards
@@ -413,6 +419,8 @@ async def matching_reading(
         ],
         "nadi_dosha": match.nadi_dosha,
         "bhakoot_dosha": match.bhakoot_dosha,
+        "nadi_cancellation_reason": match.nadi_cancellation_reason,
+        "bhakoot_cancellation_reason": match.bhakoot_cancellation_reason,
         "mangal_dosha": {
             "person_a_dosha": match.mangal_dosha.person_a_dosha,
             "person_b_dosha": match.mangal_dosha.person_b_dosha,
@@ -477,6 +485,10 @@ async def panchang_reading(
         "sunset": panchang.sunset.isoformat(),
         "rahu_kaal_start": panchang.rahu_kaal_start.isoformat(),
         "rahu_kaal_end": panchang.rahu_kaal_end.isoformat(),
+        "abhijit_start": panchang.abhijit_start.isoformat(),
+        "abhijit_end": panchang.abhijit_end.isoformat(),
+        "brahma_muhurta_start": panchang.brahma_muhurta_start.isoformat(),
+        "brahma_muhurta_end": panchang.brahma_muhurta_end.isoformat(),
     }
 
     system, user_prompt = interpretation.build_panchang_prompt(name, panchang, input.language)
@@ -593,6 +605,8 @@ async def remedy_reading(
                 "is_debilitated": c.is_debilitated,
                 "is_in_dusthana": c.is_in_dusthana,
                 "is_retrograde": c.is_retrograde,
+                "severity": c.severity,
+                "severity_label": c.severity_label,
                 "gemstone": {
                     "english": c.gemstone.gemstone_english,
                     "sanskrit": c.gemstone.gemstone_sanskrit,

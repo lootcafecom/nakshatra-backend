@@ -101,9 +101,11 @@ class PlanetConcern:
     is_debilitated: bool
     is_in_dusthana: bool
     is_retrograde: bool
-    gemstone: GemstoneInfo
-    mantra: MantraInfo
-    charity: CharityInfo
+    severity: int = 0       # 0-5: higher = more urgent
+    severity_label: str = ""  # "Critical" | "High" | "Moderate" | "Low"
+    gemstone: GemstoneInfo = None  # type: ignore
+    mantra: MantraInfo = None      # type: ignore
+    charity: CharityInfo = None    # type: ignore
 
 
 @dataclass
@@ -113,20 +115,36 @@ class RemedyProfile:
     strongest_planet: str | None
 
 
+def _severity_score(is_debilitated: bool, is_in_dusthana: bool, is_retrograde: bool, is_shadow: bool) -> tuple[int, str]:
+    """Grade severity on a 0-5 scale:
+    5 = debilitated AND in dusthana (most serious — double affliction)
+    4 = debilitated only
+    3 = in dusthana only (not debilitated)
+    2 = retrograde in dusthana
+    1 = retrograde only, or shadow planet in neutral placement
+    0 = shadow planet only (Rahu/Ketu always included, lowest priority)
+    """
+    if is_debilitated and is_in_dusthana:
+        return 5, "Critical"
+    if is_debilitated:
+        return 4, "High"
+    if is_in_dusthana and is_retrograde:
+        return 3, "Moderate"
+    if is_in_dusthana:
+        return 3, "Moderate"
+    if is_retrograde:
+        return 2, "Low"
+    if is_shadow:
+        return 1, "Routine"
+    return 0, "Routine"
+
+
 def _identify_concerns(chart: BirthChart) -> list[PlanetConcern]:
     concerns: list[PlanetConcern] = []
 
     for p in chart.planets:
         is_debilitated = DEBILITATION_SIGN.get(p.name) == p.sign
         is_in_dusthana = p.house in DUSTHANA_HOUSES
-
-        # Rahu and Ketu are shadow points that always move retrograde —
-        # that fact is astronomically constant and not a meaningful signal
-        # on its own, so it's never used here as the basis for flagging
-        # them. They are classically always considered to warrant some
-        # remedial attention (per Navagraha tradition), so they're
-        # included regardless, but their "retrograde" status is not
-        # reported as a reason — only an actual dusthana placement is.
         is_shadow_planet = p.name in ("Rahu", "Ketu")
         retrograde_is_meaningful = p.retrograde and not is_shadow_planet
 
@@ -144,6 +162,8 @@ def _identify_concerns(chart: BirthChart) -> list[PlanetConcern]:
             reasons.append("a shadow planet classically given remedial attention regardless of placement")
         reason = " and ".join(reasons)
 
+        severity, severity_label = _severity_score(is_debilitated, is_in_dusthana, retrograde_is_meaningful, is_shadow_planet)
+
         concerns.append(PlanetConcern(
             planet=p.name,
             reason=reason,
@@ -152,12 +172,15 @@ def _identify_concerns(chart: BirthChart) -> list[PlanetConcern]:
             is_debilitated=is_debilitated,
             is_in_dusthana=is_in_dusthana,
             is_retrograde=retrograde_is_meaningful,
+            severity=severity,
+            severity_label=severity_label,
             gemstone=GEMSTONES[p.name],
             mantra=MANTRAS[p.name],
             charity=CHARITY[p.name],
         ))
 
-    concerns.sort(key=lambda c: (not c.is_debilitated, not c.is_in_dusthana))
+    # Sort by severity descending — most urgent first
+    concerns.sort(key=lambda c: -c.severity)
     return concerns
 
 

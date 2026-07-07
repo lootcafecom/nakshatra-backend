@@ -30,6 +30,68 @@ SIGN_LORDS = {
     "Pisces": "Jupiter",
 }
 
+# Classical planet dignity tables — cross-checked against standard Jyotish sources
+EXALTATION_SIGN = {
+    "Sun": "Aries", "Moon": "Taurus", "Mars": "Capricorn", "Mercury": "Virgo",
+    "Jupiter": "Cancer", "Venus": "Pisces", "Saturn": "Libra",
+}
+DEBILITATION_SIGN = {
+    "Sun": "Libra", "Moon": "Scorpio", "Mars": "Cancer", "Mercury": "Pisces",
+    "Jupiter": "Capricorn", "Venus": "Virgo", "Saturn": "Aries",
+}
+# Own signs (Moolatrikona and Swakshetra)
+OWN_SIGNS: dict[str, list[str]] = {
+    "Sun": ["Leo"], "Moon": ["Cancer"], "Mars": ["Aries", "Scorpio"],
+    "Mercury": ["Gemini", "Virgo"], "Jupiter": ["Sagittarius", "Pisces"],
+    "Venus": ["Taurus", "Libra"], "Saturn": ["Capricorn", "Aquarius"],
+    "Rahu": [], "Ketu": [],
+}
+# Natural friendship table (classical)
+NATURAL_FRIENDS: dict[str, list[str]] = {
+    "Sun": ["Moon", "Mars", "Jupiter"],
+    "Moon": ["Sun", "Mercury"],
+    "Mars": ["Sun", "Moon", "Jupiter"],
+    "Mercury": ["Sun", "Venus"],
+    "Jupiter": ["Sun", "Moon", "Mars"],
+    "Venus": ["Mercury", "Saturn"],
+    "Saturn": ["Mercury", "Venus"],
+    "Rahu": ["Venus", "Saturn", "Mercury"],
+    "Ketu": ["Mars", "Venus", "Saturn"],
+}
+NATURAL_ENEMIES: dict[str, list[str]] = {
+    "Sun": ["Venus", "Saturn"],
+    "Moon": [],
+    "Mars": ["Mercury"],
+    "Mercury": ["Moon"],
+    "Jupiter": ["Mercury", "Venus"],
+    "Venus": ["Sun", "Moon"],
+    "Saturn": ["Sun", "Moon", "Mars"],
+    "Rahu": ["Sun", "Moon"],
+    "Ketu": ["Sun", "Moon"],
+}
+
+
+def compute_planet_strength(planet_name: str, sign: str) -> dict:
+    """Return the classical dignity status of a planet in a given sign.
+    Strength rating: 5=Exalted, 4=Own sign, 3=Friend's sign,
+    2=Neutral sign, 1=Enemy's sign, 0=Debilitated."""
+    if planet_name in ("Rahu", "Ketu"):
+        return {"dignity": "Shadow planet", "strength": 2, "label": "Neutral"}
+
+    if EXALTATION_SIGN.get(planet_name) == sign:
+        return {"dignity": "Exalted (Uccha)", "strength": 5, "label": "Exalted"}
+    if DEBILITATION_SIGN.get(planet_name) == sign:
+        return {"dignity": "Debilitated (Neecha)", "strength": 0, "label": "Debilitated"}
+    if sign in OWN_SIGNS.get(planet_name, []):
+        return {"dignity": "Own sign (Swakshetra)", "strength": 4, "label": "Own sign"}
+
+    sign_lord = SIGN_LORDS.get(sign, "")
+    if sign_lord in NATURAL_FRIENDS.get(planet_name, []):
+        return {"dignity": "Friend's sign (Mitra)", "strength": 3, "label": "Friend's sign"}
+    if sign_lord in NATURAL_ENEMIES.get(planet_name, []):
+        return {"dignity": "Enemy's sign (Shatru)", "strength": 1, "label": "Enemy's sign"}
+    return {"dignity": "Neutral sign (Sama)", "strength": 2, "label": "Neutral"}
+
 NAKSHATRAS = [
     "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra",
     "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni",
@@ -64,13 +126,16 @@ PLANETS = {
 @dataclass
 class PlanetPosition:
     name: str
-    longitude: float          # 0-360, sidereal (Lahiri)
+    longitude: float
     sign: str
-    sign_degree: float        # 0-30 degrees within the sign
+    sign_degree: float
     nakshatra: str
-    nakshatra_pada: int        # 1-4
-    house: int                  # 1-12, relative to ascendant
+    nakshatra_pada: int
+    house: int
     retrograde: bool
+    dignity: str = ""        # e.g. "Exalted (Uccha)"
+    strength: int = 2        # 0-5
+    strength_label: str = "" # e.g. "Exalted"
 
 
 @dataclass
@@ -97,6 +162,7 @@ class BirthChart:
     julian_day: float
     ascendant_sign: str
     ascendant_degree: float
+    ascendant_longitude: float = 0.0   # 0-360 sidereal, for D9 and divisional charts
     planets: list[PlanetPosition] = field(default_factory=list)
     moon_nakshatra: str = ""
     moon_nakshatra_pada: int = 1
@@ -104,6 +170,55 @@ class BirthChart:
     current_dasha: str = ""
     antardasha_timeline: list[AntarDasha] = field(default_factory=list)
     current_antardasha: str = ""
+
+
+def compute_navamsa_sign(sidereal_longitude: float) -> str:
+    """
+    Navamsa (D9) sign for a given sidereal longitude.
+    Each sign (30°) is divided into 9 equal parts of 3°20' (200').
+    The Navamsa sign assignment follows the classical cycle:
+    - Fire signs (Aries, Leo, Sagittarius): start from Aries
+    - Earth signs (Taurus, Virgo, Capricorn): start from Capricorn
+    - Air signs (Gemini, Libra, Aquarius): start from Libra
+    - Water signs (Cancer, Scorpio, Pisces): start from Cancer
+    """
+    NAVAMSA_START = {
+        "Aries": 0, "Leo": 0, "Sagittarius": 0,         # Fire: start Aries
+        "Taurus": 9, "Virgo": 9, "Capricorn": 9,         # Earth: start Capricorn
+        "Gemini": 6, "Libra": 6, "Aquarius": 6,          # Air: start Libra
+        "Cancer": 3, "Scorpio": 3, "Pisces": 3,           # Water: start Cancer
+    }
+    sign_idx = int(sidereal_longitude / 30)
+    sign_name = ZODIAC_SIGNS[sign_idx]
+    degrees_in_sign = sidereal_longitude % 30
+    navamsa_index = int(degrees_in_sign / (30 / 9))       # 0-8
+    start_idx = NAVAMSA_START[sign_name]
+    d9_sign_idx = (start_idx + navamsa_index) % 12
+    return ZODIAC_SIGNS[d9_sign_idx]
+
+
+def compute_navamsa_chart(chart: BirthChart) -> list[dict]:
+    """Return each planet's Navamsa (D9) sign plus the D9 ascendant."""
+    navamsa_planets = []
+    for p in chart.planets:
+        d9_sign = compute_navamsa_sign(p.longitude)
+        d9_strength = compute_planet_strength(p.name, d9_sign)
+        navamsa_planets.append({
+            "name": p.name,
+            "d9_sign": d9_sign,
+            "d9_dignity": d9_strength["dignity"],
+            "d9_strength": d9_strength["strength"],
+            "d9_strength_label": d9_strength["label"],
+        })
+    d9_asc_sign = compute_navamsa_sign(chart.ascendant_longitude)
+    navamsa_planets.insert(0, {
+        "name": "Ascendant",
+        "d9_sign": d9_asc_sign,
+        "d9_dignity": "—",
+        "d9_strength": 2,
+        "d9_strength_label": "—",
+    })
+    return navamsa_planets
 
 
 def compute_antardasha(mahadasha: DashaPeriod) -> list[AntarDasha]:
@@ -211,15 +326,20 @@ def compute_planet_positions(jd: float, asc_longitude: float) -> list[PlanetPosi
 def _build_position(name: str, sidereal_lon: float, asc_longitude: float, retrograde: bool) -> PlanetPosition:
     sign_idx = _sign_index(sidereal_lon)
     nak_idx = _nakshatra_index(sidereal_lon)
+    sign = ZODIAC_SIGNS[sign_idx]
+    strength_info = compute_planet_strength(name, sign)
     return PlanetPosition(
         name=name,
         longitude=round(sidereal_lon, 4),
-        sign=ZODIAC_SIGNS[sign_idx],
+        sign=sign,
         sign_degree=round(sidereal_lon % 30, 2),
         nakshatra=NAKSHATRAS[nak_idx],
         nakshatra_pada=_pada(sidereal_lon),
         house=_house_of(sidereal_lon, asc_longitude),
         retrograde=retrograde,
+        dignity=strength_info["dignity"],
+        strength=strength_info["strength"],
+        strength_label=strength_info["label"],
     )
 
 
@@ -297,6 +417,7 @@ def compute_birth_chart(
         julian_day=jd,
         ascendant_sign=ZODIAC_SIGNS[_sign_index(asc_longitude)],
         ascendant_degree=round(asc_longitude % 30, 2),
+        ascendant_longitude=round(asc_longitude, 4),
         planets=planets,
         moon_nakshatra=moon.nakshatra,
         moon_nakshatra_pada=moon.nakshatra_pada,

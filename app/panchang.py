@@ -79,14 +79,14 @@ class PanchangResult:
     weekday_lord: str
 
     tithi_name: str
-    tithi_number: int          # 1-15 within the paksha
-    paksha: str                  # "Shukla" or "Krishna"
+    tithi_number: int
+    paksha: str
 
     nakshatra: str
     nakshatra_pada: int
 
     yoga_name: str
-    yoga_is_favorable: bool | None  # None if neutral (neither list)
+    yoga_is_favorable: bool | None
 
     karana_name: str
 
@@ -94,6 +94,10 @@ class PanchangResult:
     sunset: datetime
     rahu_kaal_start: datetime
     rahu_kaal_end: datetime
+    abhijit_start: datetime
+    abhijit_end: datetime
+    brahma_muhurta_start: datetime
+    brahma_muhurta_end: datetime
 
 
 def _sun_moon_longitudes(jd: float) -> tuple[float, float]:
@@ -213,6 +217,13 @@ def compute_panchang(date_str: str, latitude: float, longitude: float, tz_name: 
     rahu_start = sunrise_utc + timedelta(seconds=segment_seconds * (segment_index - 1))
     rahu_end = rahu_start + timedelta(seconds=segment_seconds)
 
+    noon_utc = sunrise_utc + timedelta(seconds=daylight_seconds / 2)
+    abhijit_start = noon_utc - timedelta(minutes=24)
+    abhijit_end = noon_utc + timedelta(minutes=24)
+
+    brahma_start = sunrise_utc - timedelta(hours=1, minutes=36)
+    brahma_end = sunrise_utc - timedelta(minutes=48)
+
     return PanchangResult(
         date=date_str,
         weekday=weekday,
@@ -229,4 +240,8 @@ def compute_panchang(date_str: str, latitude: float, longitude: float, tz_name: 
         sunset=sunset_utc,
         rahu_kaal_start=rahu_start,
         rahu_kaal_end=rahu_end,
+        abhijit_start=abhijit_start,
+        abhijit_end=abhijit_end,
+        brahma_muhurta_start=brahma_start,
+        brahma_muhurta_end=brahma_end,
     )

@@ -143,8 +143,9 @@ class TestFullMatchIntegration:
         assert sum(k.max_points for k in result.kootas) == 36
 
     def test_match_with_self_has_perfect_some_kootas(self):
-        # matching identical birth data with itself should max out
-        # nakshatra-identical kootas (Gana, Nadi-same triggers dosha though)
+        # matching identical birth data — same nakshatra triggers Nadi Dosha,
+        # but it is immediately cancelled because same nakshatra = cancellation rule.
+        # So the Nadi score is restored to 8 and nadi_dosha flag is False.
         result, chart_a, chart_b = compute_kundli_match(
             "Person A", "1995-06-15", "10:30", 19.0760, 72.8777, "Asia/Kolkata",
             "Person A copy", "1995-06-15", "10:30", 19.0760, 72.8777, "Asia/Kolkata",
@@ -152,8 +153,9 @@ class TestFullMatchIntegration:
         gana_koota = next(k for k in result.kootas if k.name == "Gana")
         assert gana_koota.score == 6  # identical gana
         nadi_koota = next(k for k in result.kootas if k.name == "Nadi")
-        assert nadi_koota.score == 0  # same nadi = dosha
-        assert result.nadi_dosha is True
+        assert nadi_koota.score == 8  # same nakshatra triggers dosha but cancellation restores full points
+        assert result.nadi_dosha is False  # cancelled — classical same-nakshatra exception
+        assert result.nadi_cancellation_reason is not None
 
     def test_mangal_dosha_detection_runs(self):
         result, chart_a, chart_b = compute_kundli_match(
